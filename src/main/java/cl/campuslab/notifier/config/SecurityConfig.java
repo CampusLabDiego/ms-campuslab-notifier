@@ -3,6 +3,8 @@ package cl.campuslab.notifier.config;
 import java.util.Arrays;
 import java.util.List;
 
+import jakarta.servlet.DispatcherType;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,7 +33,8 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http) throws Exception {
+            HttpSecurity http
+    ) throws Exception {
 
         JwtGrantedAuthoritiesConverter rolesConverter =
                 new JwtGrantedAuthoritiesConverter();
@@ -43,7 +46,8 @@ public class SecurityConfig {
                 new JwtAuthenticationConverter();
 
         authenticationConverter.setJwtGrantedAuthoritiesConverter(
-                rolesConverter);
+                rolesConverter
+        );
 
         return http
                 .csrf(csrf -> csrf.disable())
@@ -52,20 +56,37 @@ public class SecurityConfig {
                 .logout(logout -> logout.disable())
                 .requestCache(cache -> cache.disable())
 
-                .sessionManagement(session -> session
-                        .sessionCreationPolicy(
-                                SessionCreationPolicy.STATELESS))
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(
+                                SessionCreationPolicy.STATELESS
+                        )
+                )
 
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                HttpMethod.GET,
-                                "/actuator/health")
+
+                        // Conserva el código de las respuestas
+                        // durante el despacho interno de errores.
+                        .dispatcherTypeMatchers(DispatcherType.ERROR)
                         .permitAll()
 
                         .requestMatchers(
                                 HttpMethod.GET,
+                                "/actuator/health"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/audit",
+                                "/api/audit/**"
+                        )
+                        .hasAnyRole("Admin", "Auditor")
+
+                        .requestMatchers(
+                                HttpMethod.GET,
                                 "/api/notifications",
-                                "/api/notifications/**")
+                                "/api/notifications/**"
+                        )
                         .hasAnyRole("Admin", "Operador", "Cliente")
 
                         .anyRequest()
@@ -75,7 +96,10 @@ public class SecurityConfig {
                 .oauth2ResourceServer(oauth -> oauth
                         .jwt(jwt -> jwt
                                 .jwtAuthenticationConverter(
-                                        authenticationConverter)))
+                                        authenticationConverter
+                                )
+                        )
+                )
 
                 .build();
     }
@@ -84,9 +108,10 @@ public class SecurityConfig {
     public JwtDecoder jwtDecoder(
             @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
             String issuer,
-            @Value("${campuslab.security.audience}")
-            String audience) {
 
+            @Value("${campuslab.security.audience}")
+            String audience
+    ) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder
                 .withIssuerLocation(issuer)
                 .build();
@@ -95,24 +120,30 @@ public class SecurityConfig {
                 new JwtClaimValidator<>(
                         "aud",
                         audiences -> audiences != null
-                                && audiences.contains(audience));
+                                && audiences.contains(audience)
+                );
 
         JwtClaimValidator<String> scopeValidator =
                 new JwtClaimValidator<>(
                         "scp",
                         scopes -> scopes != null
-                                && Arrays.asList(scopes.split("\\s+"))
-                                        .contains("access_as_user"));
+                                && Arrays.asList(
+                                        scopes.split("\\s+")
+                                ).contains("access_as_user")
+                );
 
         JwtClaimValidator<Object> expirationRequired =
                 new JwtClaimValidator<>(
                         "exp",
-                        value -> value != null);
+                        value -> value != null
+                );
 
         JwtClaimValidator<String> ownerRequired =
                 new JwtClaimValidator<>(
                         "oid",
-                        value -> value != null && !value.isBlank());
+                        value -> value != null
+                                && !value.isBlank()
+                );
 
         decoder.setJwtValidator(
                 new DelegatingOAuth2TokenValidator<Jwt>(
@@ -120,7 +151,9 @@ public class SecurityConfig {
                         audienceValidator,
                         scopeValidator,
                         expirationRequired,
-                        ownerRequired));
+                        ownerRequired
+                )
+        );
 
         return decoder;
     }

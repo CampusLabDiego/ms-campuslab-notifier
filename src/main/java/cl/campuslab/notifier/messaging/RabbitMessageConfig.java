@@ -5,6 +5,7 @@ import java.util.Map;
 import org.springframework.amqp.support.converter.DefaultClassMapper;
 import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -16,17 +17,25 @@ public class RabbitMessageConfig {
         DefaultClassMapper classMapper = new DefaultClassMapper();
 
         classMapper.setTrustedPackages(
-                "cl.campuslab.notifier.messaging");
+                "cl.campuslab.notifier.messaging"
+        );
 
-        classMapper.setIdClassMapping(Map.of(
-                "booking.task.v1", BookingTaskMessage.class
-        ));
+        classMapper.setIdClassMapping(
+                Map.of(
+                        "booking.task.v1",
+                        BookingTaskMessage.class,
+
+                        "booking.audit.v1",
+                        BookingAuditMessage.class
+                )
+        );
 
         classMapper.afterPropertiesSet();
 
         JacksonJsonMessageConverter converter =
                 new JacksonJsonMessageConverter(
-                        "cl.campuslab.notifier.messaging");
+                        "cl.campuslab.notifier.messaging"
+                );
 
         converter.setClassMapper(classMapper);
 
