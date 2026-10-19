@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# Compilacion local
+target/
+
+# Configuracion del editor
+.idea/
+.vscode/
+*.iml
+
+# Credenciales
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+
+# Documentos y registros generados
+storage/
+logs/
+*.log
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
