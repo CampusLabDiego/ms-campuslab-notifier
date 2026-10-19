@@ -21,6 +21,7 @@ public class EmailService {
     private final JavaMailSender mailSender;
     private final String from;
     private final ZoneId zone;
+    private final String testRecipient;
 
     private final DateTimeFormatter dateFormat =
             DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
@@ -30,11 +31,14 @@ public class EmailService {
             @Value("${campuslab.mail.from}")
             String from,
             @Value("${campuslab.documents.zone}")
-            String zone) {
+            String zone,
+            @Value("${MAIL_TEST_RECIPIENT:}")
+            String testRecipient) {
 
         this.mailSender = mailSender;
         this.from = from;
         this.zone = ZoneId.of(zone);
+        this.testRecipient = testRecipient.trim();
     }
 
     public void send(BookingTaskMessage task)
@@ -44,6 +48,12 @@ public class EmailService {
             throw new IllegalArgumentException(
                     "La tarea recibida no corresponde a un correo.");
         }
+
+        boolean testMode = !testRecipient.isBlank();
+
+        String recipient = testMode
+                ? testRecipient
+                : task.userEmail();
 
         String event = eventName(task.eventType());
 
@@ -61,7 +71,16 @@ public class EmailService {
                 .atZone(zone)
                 .format(dateFormat);
 
-        String body = """
+        String notice = testMode
+                ? """
+                  MODO DE PRUEBA
+                  Este aviso fue redirigido a un buzón de pruebas.
+                  Destinatario original: %s
+
+                  """.formatted(task.userEmail())
+                : "";
+
+        String body = notice + """
                 CampusLab
 
                 %s
@@ -103,10 +122,11 @@ public class EmailService {
                 StandardCharsets.UTF_8.name());
 
         helper.setFrom(from);
-        helper.setTo(task.userEmail());
+        helper.setTo(recipient);
 
         helper.setSubject(
-                "CampusLab - Reserva #"
+                (testMode ? "[PRUEBA] " : "")
+                        + "CampusLab - Reserva #"
                         + task.bookingId()
                         + " - "
                         + event);
