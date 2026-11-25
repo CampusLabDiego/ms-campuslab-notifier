@@ -1,126 +1,166 @@
 # Notificaciones y auditoría CampusLab
 
-Consume tareas y eventos de RabbitMQ para enviar correos,
-generar documentos PDF y persistir el historial de auditoría.
+Procesa tareas de notificación y eventos de auditoría. Envía correos, genera documentos PDF y almacena el historial de eventos.
 
 ## Tecnologías
 
-- Java 21 y Spring Boot.
-- Spring AMQP.
+- Java 21.
+- Spring Boot.
+- Spring Web MVC.
+- Spring Security OAuth2 Resource Server.
+- Spring Data JPA y MySQL.
+- Spring AMQP y RabbitMQ.
+- Spring Kafka.
 - Spring Mail.
 - Apache PDFBox.
-- Spring Data JPA y MySQL.
-- Spring Security OAuth2 Resource Server.
 - Maven y Docker.
 
-## Consumidores
+## Funcionalidades
+
+- Enviar correos asociados a las reservas.
+- Generar tickets de preparación.
+- Generar comprobantes en PDF.
+- Consultar tareas y documentos según el rol del usuario.
+- Consumir eventos de auditoría desde RabbitMQ y Kafka.
+- Persistir el historial de auditoría en MySQL.
+
+## Consumidores RabbitMQ
 
 | Cola | Responsabilidad |
 |---|---|
-| q.cmd.email | Envío de correos |
-| q.cmd.prep | Generación de tickets de preparación |
-| q.cmd.voucher | Generación de comprobantes PDF |
-| q.evt.audit | Persistencia de eventos de auditoría |
+| `q.cmd.email` | Envío de correos |
+| `q.cmd.prep` | Generación de tickets de preparación |
+| `q.cmd.voucher` | Generación de comprobantes PDF |
+| `q.evt.audit` | Persistencia de eventos de auditoría |
 
-Cada cola tiene su DLQ.
+Las colas funcionales cuentan con colas de errores asociadas.
 
-## Confirmación y errores
+Los consumidores utilizan ACK manual. Los errores recuperables se reintentan de forma acotada; si el procesamiento sigue fallando, el mensaje se rechaza y se deriva a su DLQ.
 
-Los consumidores utilizan ACK manual después del procesamiento.
+## Consumo de eventos Kafka
 
-Los errores recuperables se reintentan hasta tres intentos por
-entrega. Si persisten, el mensaje se rechaza sin requeue y va a la DLQ.
+El servicio consume los tópicos:
 
-Los errores permanentes se rechazan directamente.
-Los listeners de DLQ registran los metadatos del mensaje.
+- `bookings.events`
+- `audit.timeline`
 
-Las tareas y los eventos se identifican para reconocer duplicados.
+El grupo de consumidores es:
+
+```text
+campuslab-notifier
+```
+
+Después de procesar el evento y persistirlo correctamente, el consumidor confirma manualmente su recepción.
+
+Si falla el procesamiento, intenta publicar el mensaje original en el tópico de errores correspondiente:
+
+- `bookings.events.DLT`
+- `audit.timeline.DLT`
+
+El evento original se confirma solo después de que Kafka acepta su publicación en la DLT. Si el envío a la DLT falla, el consumidor puede volver a recibir el evento.
+
+La conexión se configura mediante:
+
+```text
+KAFKA_BOOTSTRAP_SERVERS
+```
+
+El tópico `demo.carga` se utiliza para pruebas de carga aisladas. No forma parte de los tópicos consumidos por este servicio.
 
 ## Correos
 
-La configuración SMTP se recibe mediante variables de entorno:
-
-- MAIL_HOST.
-- MAIL_PORT.
-- MAIL_USERNAME.
-- MAIL_PASSWORD.
-- MAIL_FROM.
-- MAIL_SMTP_AUTH.
-- MAIL_STARTTLS.
-- MAIL_STARTTLS_REQUIRED.
-
-MAIL_TEST_RECIPIENT permite redirigir los correos durante pruebas.
-Si está vacío, se usa el destinatario del evento.
-
-La aceptación por el servidor SMTP no garantiza la entrega final
-al buzón del destinatario. Puede existir un rebote posterior.
-
-Si el proceso falla después de la aceptación SMTP y antes de
-confirmar la persistencia, existe posibilidad de envío duplicado.
-
-## Documentos
-
-Se generan tickets de preparación y comprobantes PDF.
-
-Directorio configurado:
+La configuración SMTP se recibe por variables de entorno:
 
 ```text
-/app/storage
+MAIL_HOST
+MAIL_PORT
+MAIL_USERNAME
+MAIL_PASSWORD
+MAIL_FROM
+MAIL_SMTP_AUTH
+MAIL_STARTTLS
+MAIL_STARTTLS_REQUIRED
+MAIL_TEST_RECIPIENT
 ```
 
-El volumen notifier_documents conserva los archivos.
+`MAIL_TEST_RECIPIENT` permite redirigir los mensajes durante pruebas. Si no tiene valor, se utiliza el destinatario indicado por el evento.
 
-Las fechas mostradas en los documentos utilizan America/Santiago.
+La aceptación de un mensaje por el servidor SMTP no garantiza su entrega final al buzón. Si el proceso falla después de que el servidor acepta el correo y antes de confirmar el procesamiento, existe la posibilidad de un envío duplicado.
+
+## Documentos PDF
+
+El servicio genera tickets de preparación y comprobantes PDF.
+
+La ruta de almacenamiento se configura mediante:
+
+```text
+DOCUMENTS_PATH
+```
+
+En Docker Compose se utiliza un volumen persistente para conservar los documentos. Las fechas de los documentos se muestran usando la zona horaria `America/Santiago`.
 
 ## API de notificaciones
 
-```text
-GET /api/notifications
-GET /api/notifications/{taskId}
-GET /api/notifications/{taskId}/document
-```
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/notifications` | Consultar notificaciones autorizadas |
+| GET | `/api/notifications/{taskId}` | Consultar una tarea |
+| GET | `/api/notifications/{taskId}/document` | Descargar el documento asociado |
 
-- Admin y Operador consultan las tareas autorizadas de gestión.
-- Cliente consulta únicamente sus tareas y documentos.
-- La descarga valida la propiedad y disponibilidad del archivo.
+Cliente consulta únicamente sus tareas y documentos. Admin y Operador acceden a las tareas autorizadas según sus funciones.
 
 ## API de auditoría
 
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/audit` | Consultar eventos recientes |
+| GET | `/api/audit?bookingId=12` | Filtrar eventos por reserva |
+
+La consulta está disponible para los roles Admin y Auditor. Devuelve hasta 500 eventos recientes.
+
+El historial diferencia el estado anterior, el estado solicitado y el estado registrado. También conserva el actor, el identificador de operación y los momentos de ocurrencia y recepción.
+
+La auditoría registra eventos desde su activación; no reconstruye operaciones históricas anteriores.
+
+## Configuración
+
+Variables principales:
+
 ```text
-GET /api/audit
-GET /api/audit?bookingId=12
+DB_HOST
+DB_PORT
+DB_NAME
+DB_USERNAME
+DB_PASSWORD
+RABBITMQ_ADDRESSES
+RABBITMQ_USER
+RABBITMQ_PASSWORD
+RABBITMQ_VHOST
+KAFKA_BOOTSTRAP_SERVERS
+MAIL_HOST
+MAIL_PORT
+MAIL_USERNAME
+MAIL_PASSWORD
+MAIL_FROM
+MAIL_TEST_RECIPIENT
+DOCUMENTS_PATH
 ```
 
-Disponible para Admin y Auditor, en modo lectura.
+Base de datos: `campuslab_notifier`  
+Puerto interno: `8083`
 
-Devuelve hasta 500 eventos recientes y permite filtrar por reserva.
-
-El historial diferencia:
-
-- Actor que realizó la solicitud.
-- Estado anterior, registrado y solicitado.
-- Confirmación o rechazo automático.
-- Identificador de operación relacionado.
-- Momento del evento y momento de recepción.
-
-La auditoría usa RabbitMQ y MySQL.
-No reconstruye operaciones anteriores a su activación.
-
-## Configuración adicional
-
-- DB_HOST, DB_PORT, DB_NAME, DB_USERNAME, DB_PASSWORD.
-- RABBITMQ_ADDRESSES, RABBITMQ_USER, RABBITMQ_PASSWORD, RABBITMQ_VHOST.
-- DOCUMENTS_PATH.
-
-Base de datos: campuslab_notifier.
-Puerto: 8083.
+Las credenciales y direcciones del entorno se configuran fuera del repositorio. No se deben subir secretos al control de versiones.
 
 ## Compilación
+
+En PowerShell, desde la carpeta del repositorio:
 
 ```powershell
 .\mvnw.cmd clean package -DskipTests
 ```
 
-Este comando compila y empaqueta; omite la ejecución de pruebas.
+Este comando compila y empaqueta el servicio, pero omite la ejecución de pruebas.
 
-El despliegue está definido en infra-campuslab.
+## Despliegue
+
+El servicio se construye y ejecuta mediante Docker Compose en el repositorio `infra-campuslab`.
